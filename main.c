@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <inttypes.h>
 
 #include <ccan/pr_debug/pr_debug.h>
 #include <ccan/err/err.h>
@@ -72,7 +73,7 @@ int main(int argc, char **argv)
 
 	char *file = argv[1];
 
-	pr_debug(2, "filename = %s", file);
+	pr_debug(5, "filename = %s", file);
 	FILE *f = fopen(file, "rb");
 	if (!f)
 		err(1, "could not open %s", file);
@@ -88,6 +89,32 @@ int main(int argc, char **argv)
 	pr_debug(1, "magic  = %*s", (int)sizeof(p0->magic), (char *)&p0->magic);
 	pr_debug(1, "length = %zu pages", catalog_page_length);
 	pr_debug(1, "build_time_stamp = %*s", (int)sizeof(p0->build_time_stamp), p0->build_time_stamp);
+
+	pr_debug(1, "version = %"PRIu32, be_to_cpu(p0->version));
+
+#define pr_u(v) pr_debug(2, #v " = %u", v);
+
+	unsigned schema_data_offs = be_to_cpu(p0->schema_data_offs);
+	unsigned schema_data_len  = be_to_cpu(p0->schema_data_len);
+	unsigned schema_entry_count = be_to_cpu(p0->schema_entry_count);
+
+	unsigned group_data_offs = be_to_cpu(p0->group_data_offs);
+	unsigned group_data_len  = be_to_cpu(p0->group_data_len);
+	unsigned group_entry_count = be_to_cpu(p0->group_entry_count);
+
+	unsigned formula_data_offs = be_to_cpu(p0->formula_data_offs);
+	unsigned formula_data_len = be_to_cpu(p0->formula_data_len);
+	unsigned formula_entry_count = be_to_cpu(p0->formula_entry_count);
+
+	pr_u(schema_data_offs);
+	pr_u(schema_data_len);
+	pr_u(schema_entry_count);
+	pr_u(group_data_offs);
+	pr_u(group_data_len);
+	pr_u(group_entry_count);
+	pr_u(formula_data_offs);
+	pr_u(formula_data_len);
+	pr_u(formula_entry_count);
 
 	return 0;
 }
