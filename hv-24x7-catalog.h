@@ -75,6 +75,7 @@ struct hv_24x7_group_data {
 
 /* "Get Event Counter Group Record Schema hypervisor interface" */
 
+/* grs = "Group REcord Schema" */
 enum hv_24x7_grs_field_enums {
 	/* GRS_COUNTER_1 = 1
 	 * GRS_COUNTER_2 = 2

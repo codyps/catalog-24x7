@@ -1,7 +1,20 @@
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+#include <ccan/pr_debug/pr_debug.h>
+#include <ccan/err/err.h>
+#include <ccan/endian/endian.h>
 
 #define __packed __attribute__((__packed__))
 #include "hv-24x7-catalog.h"
+
+#define max(x, y) ({		\
+	typeof(x) __x = x;	\
+	typeof(y) __y = y;	\
+	(void)(&__y == &__x);	\
+	__x > __y ? __x : __y;	\
+	})
 
 
 /* 2 mappings:
@@ -32,7 +45,49 @@ static size_t domain_to_string(enum hv_perf_domains domain, char *buf, size_t bu
 	return l;
 }
 
+
+#define _pr_sz(l, s) pr_debug(l, #s " = %zu", s);
+#define pr_sz(l, s) _pr_sz(l, sizeof(s))
+
+
+static void _usage(const char *p, int e)
+{
+	FILE *o = stderr;
+	fprintf(o, "usage: %s <catalog file>\n", p);
+	exit(e);
+}
+
+#define _PRGM_NAME "parse"
+#define PRGM_NAME  (argc?argv[0]:_PRGM_NAME)
+#define usage(argc, argv, e) _usage(PRGM_NAME, e)
+#define U(e) usage(argc, argv, e)
+
 int main(int argc, char **argv)
 {
+	err_set_progname(PRGM_NAME);
+	pr_sz(9, struct hv_24x7_catalog_page_0);
+
+	if (argc != 2)
+		U(0);
+
+	char *file = argv[1];
+
+	pr_debug(2, "filename = %s", file);
+	FILE *f = fopen(file, "rb");
+	if (!f)
+		err(1, "could not open %s", file);
+
+	char buf[4096];
+	ssize_t r = fread(buf, 1, sizeof(buf), f);
+	if (r != 4096)
+		err(1, "could not read page 0, got %zd bytes", r);
+
+	struct hv_24x7_catalog_page_0 *p0 = (void *)buf;
+
+	size_t catalog_page_length = be_to_cpu(p0->length);
+	pr_debug(1, "magic  = %*s", (int)sizeof(p0->magic), (char *)&p0->magic);
+	pr_debug(1, "length = %zu pages", catalog_page_length);
+	pr_debug(1, "build_time_stamp = %*s", (int)sizeof(p0->build_time_stamp), p0->build_time_stamp);
+
 	return 0;
 }
