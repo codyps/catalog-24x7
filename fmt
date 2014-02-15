@@ -1,0 +1,20 @@
+catalog {
+
+	version = 1;
+	timestamp = "YYYYMMDDHHMMSS\0\0";
+
+
+	schema {
+
+
+	}
+
+	group {
+
+
+	}
+
+	formula {
+
+	}
+}
