@@ -8,17 +8,11 @@
 #include <ccan/pr_debug/pr_debug.h>
 #include <ccan/err/err.h>
 #include <ccan/endian/endian.h>
+#include <penny/penny.h>
+#include <penny/math.h>
 
 #define __packed __attribute__((__packed__))
 #include "hv-24x7-catalog.h"
-
-#define max(x, y) ({		\
-	typeof(x) __x = x;	\
-	typeof(y) __y = y;	\
-	(void)(&__y == &__x);	\
-	__x > __y ? __x : __y;	\
-	})
-
 
 /* 2 mappings:
  * - # to name
@@ -231,33 +225,53 @@ int main(int argc, char **argv)
 	void *end = event_data + event_data_bytes;
 	size_t i = 0;
 	for (;;) {
-		if (!event_fixed_portion_is_within(event, end))
-			errx(4, "event fixed portion is not within range");
+
+		size_t offset = (void *)event - (void *)event_data;
+		if (offset >= event_data_bytes)
+			break;
+
+		if (i >= event_entry_count) {
+			warnx("event count ends before buffer end (offset=%zu, bytes remaining=%zu)\n",
+					offset, event_data_bytes - offset);
+			break;
+		}
+
+		if (!event_fixed_portion_is_within(event, end)) {
+			warnx("event fixed portion is not within range");
+			break;
+		}
 
 		size_t ev_len = be_to_cpu(event->length);
-		printf("/* event %zu of %u: len=%zu */\n", i, event_entry_count, ev_len);
+		printf("/* event %zu of %u: len=%zu offset=%zu */\n", i, event_entry_count, ev_len, offset);
+
+		if (!IS_ALIGNED(ev_len, 16))
+			printf("/* missaligned */\n");
 
 		void *ev_end = (__u8 *)event + ev_len;
 		if (ev_end > end) {
-			errx(4, "event ends after event data: ev_end=%p > end=%p", ev_end, end);
+			warnx("event ends after event data: ev_end=%p > end=%p", ev_end, end);
+			break;
 		}
 
-		if (!event_is_within(event, end))
-			errx(4, "event exceeds event data length event=%p end=%p", event, end);
+		if (!event_is_within(event, end)) {
+			warnx("event exceeds event data length event=%p end=%p", event, end);
+			break;
+		}
 
-		if (!event_is_within(event, ev_end))
-			errx(4, "event exceeds it's own length event=%p end=%p", event, ev_end);
+		if (!event_is_within(event, ev_end)) {
+			warnx("event exceeds it's own length event=%p end=%p", event, ev_end);
+			break;
+		}
 
 
 		print_event(event, stdout);
 
 		event = (void *)event + ev_len;
 		i ++;
-
-		/* FIXME: use the buffer size and check this but don't rely on it. */
-		if (i >= event_entry_count)
-			break;
 	}
+
+	if (i != event_entry_count)
+		warnx("event buffer ended before listed # of events were parsed (got %zu, wanted %u)", i, event_entry_count);
 
 	/* TODO: for each group */
 
