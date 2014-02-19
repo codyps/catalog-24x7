@@ -2,6 +2,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <inttypes.h>
+#include <stdbool.h>
+#include <stddef.h>
 
 #include <ccan/pr_debug/pr_debug.h>
 #include <ccan/err/err.h>
@@ -44,6 +46,61 @@ static size_t domain_to_string(enum hv_perf_domains domain, char *buf, size_t bu
 	}
 
 	return l;
+}
+
+static char *event_name(struct hv_24x7_event_data *ev, size_t *len)
+{
+	*len = be_to_cpu(ev->event_name_len) - 2;
+	return (char *)ev->remainder;
+}
+
+static char *event_desc(struct hv_24x7_event_data *ev, size_t *len)
+{
+	unsigned nl = ev->event_name_len;
+	__be16 *desc_len = (__be16 *)(ev->remainder + nl);
+	*len = be_to_cpu(*desc_len) - 2;
+	return (char *)ev->remainder + nl + 2;
+}
+
+static char *event_long_desc(struct hv_24x7_event_data *ev, size_t *len)
+{
+	unsigned nl = ev->event_name_len;
+	__be16 *desc_len_ = (__be16 *)(ev->remainder + nl);
+	unsigned desc_len = be_to_cpu(*desc_len_);
+	__be16 *long_desc_len = (__be16 *)(ev->remainder + nl + desc_len);
+	*len = be_to_cpu(*long_desc_len) - 2;
+	return (char *)ev->remainder + nl + desc_len + 2;
+}
+
+
+static bool event_fixed_portion_is_within(struct hv_24x7_event_data *ev, void *end)
+{
+	void *start = ev;
+	return (start + offsetof(struct hv_24x7_event_data, remainder)) < end;
+}
+
+static bool event_is_within(struct hv_24x7_event_data *ev, void *end)
+{
+	unsigned nl = be_to_cpu(ev->event_name_len);
+	void *start = ev;
+	if (start + nl > end) {
+		pr_debug(1, "%s: start=%p + nl=%u > end=%p", __func__, start, nl, end);
+		return false;
+	}
+
+	unsigned dl = be_to_cpu(*((__be16*)(ev->remainder + nl)));
+	if (start + nl + dl > end) {
+		pr_debug(1, "%s: start=%p + nl=%u + dl=%u> end=%p", __func__, start, nl, dl, end);
+		return false;
+	}
+
+	unsigned ldl = be_to_cpu(*((__be16*)(ev->remainder + nl + dl)));
+	if (start + nl + dl + ldl > end) {
+		pr_debug(1, "%s: start=%p + nl=%u + dl=%u + ldl=%u > end=%p", __func__, start, nl, dl, ldl, end);
+		return false;
+	}
+
+	return true;
 }
 
 
@@ -90,13 +147,17 @@ int main(int argc, char **argv)
 	pr_debug(1, "length = %zu pages", catalog_page_length);
 	pr_debug(1, "build_time_stamp = %*s", (int)sizeof(p0->build_time_stamp), p0->build_time_stamp);
 
-	pr_debug(1, "version = %"PRIu32, be_to_cpu(p0->version));
+	pr_debug(1, "version = %"PRIu64, be_to_cpu(p0->version));
 
 #define pr_u(v) pr_debug(2, #v " = %u", v);
 
 	unsigned schema_data_offs = be_to_cpu(p0->schema_data_offs);
 	unsigned schema_data_len  = be_to_cpu(p0->schema_data_len);
 	unsigned schema_entry_count = be_to_cpu(p0->schema_entry_count);
+
+	unsigned event_data_offs = be_to_cpu(p0->event_data_offs);
+	unsigned event_data_len  = be_to_cpu(p0->event_data_len);
+	unsigned event_entry_count = be_to_cpu(p0->event_entry_count);
 
 	unsigned group_data_offs = be_to_cpu(p0->group_data_offs);
 	unsigned group_data_len  = be_to_cpu(p0->group_data_len);
@@ -109,12 +170,71 @@ int main(int argc, char **argv)
 	pr_u(schema_data_offs);
 	pr_u(schema_data_len);
 	pr_u(schema_entry_count);
+	pr_u(event_data_offs);
+	pr_u(event_data_len);
+	pr_u(event_entry_count);
 	pr_u(group_data_offs);
 	pr_u(group_data_len);
 	pr_u(group_entry_count);
 	pr_u(formula_data_offs);
 	pr_u(formula_data_len);
 	pr_u(formula_entry_count);
+
+	/* TODO: for each schema offs */
+
+	/* events */
+	size_t event_data_bytes = event_data_len * 4096;
+	void *event_data = malloc(event_data_bytes);
+	if (!event_data)
+		err(1, "alloc failure %zu", event_data_bytes);
+	if (fseek(f, 4096 * event_data_offs, SEEK_SET))
+		err(2, "seek failure");
+	if (fread(event_data, 1, event_data_bytes, f) != event_data_bytes)
+		err(3, "read failure");
+
+	struct hv_24x7_event_data *event = event_data;
+	void *end = event_data + event_data_bytes;
+	size_t i = 0;
+	for (;;) {
+		if (!event_fixed_portion_is_within(event, end))
+			errx(4, "event fixed portion is not within range");
+
+		size_t ev_len = be_to_cpu(event->length);
+		size_t name_len, desc_len, long_desc_len;
+		char *name, *desc, *long_desc;
+
+		printf("event %zu of %u: len=%zu\n", i, event_entry_count, ev_len);
+
+		void *ev_end = (__u8 *)event + ev_len;
+		if (ev_end > end) {
+			errx(4, "event ends after event data: ev_end=%p > end=%p", ev_end, end);
+		}
+
+		if (!event_is_within(event, end))
+			errx(4, "event exceeds event data length event=%p end=%p", event, end);
+
+		if (!event_is_within(event, ev_end))
+			errx(4, "event exceeds it's own length event=%p end=%p", event, ev_end);
+
+		name = event_name(event, &name_len);
+		desc = event_desc(event, &desc_len);
+		long_desc = event_long_desc(event, &long_desc_len);
+
+		printf("event %zu of %u: len=%zu, domain=%u, event_group_record_offs=%u, event_group_record_len=%u, event_counter_offs=%u name=%*s\n",
+				i, event_entry_count,
+				ev_len, event->domain, be_to_cpu(event->event_group_record_offs), be_to_cpu(event->event_group_record_len),
+				be_to_cpu(event->event_counter_offs), (int)name_len, name);
+
+		event = (void *)event + ev_len;
+		i ++;
+
+		if (end == ev_end)
+			break;
+	}
+
+	/* TODO: for each group */
+
+	/* TODO: for each formula */
 
 	return 0;
 }
