@@ -49,7 +49,7 @@ static size_t domain_to_string(enum hv_perf_domains domain, char *buf, size_t bu
 
 #define _pr_sz(l, s) pr_debug(l, #s " = %zu", s);
 #define pr_sz(l, s) _pr_sz(l, sizeof(s))
-
+#define pr_u(v) pr_debug(1, #v " = %u", v);
 
 static void _usage(const char *p, int e)
 {
@@ -92,7 +92,6 @@ int main(int argc, char **argv)
 
 	pr_debug(1, "version = %"PRIu32, be_to_cpu(p0->version));
 
-#define pr_u(v) pr_debug(2, #v " = %u", v);
 
 	unsigned schema_data_offs = be_to_cpu(p0->schema_data_offs);
 	unsigned schema_data_len  = be_to_cpu(p0->schema_data_len);
