@@ -69,7 +69,7 @@ static char *event_long_desc(struct hv_24x7_event_data *ev, size_t *len)
 	unsigned desc_len = be_to_cpu(*desc_len_);
 	__be16 *long_desc_len = (__be16 *)(ev->remainder + nl + desc_len - 2);
 	*len = be_to_cpu(*long_desc_len) - 2;
-	return (char *)ev->remainder + nl + desc_len + 2;
+	return (char *)ev->remainder + nl + desc_len;
 }
 
 
@@ -101,6 +101,42 @@ static bool event_is_within(struct hv_24x7_event_data *ev, void *end)
 	}
 
 	return true;
+}
+
+static void print_event(struct hv_24x7_event_data *event, FILE *o)
+{
+
+	size_t name_len, desc_len, long_desc_len;
+	char *name, *desc, *long_desc;
+
+	name = event_name(event, &name_len);
+	desc = event_desc(event, &desc_len);
+	long_desc = event_long_desc(event, &long_desc_len);
+
+	fprintf(o, "event {\n"
+		"	.length=%u,\n"
+		"	.domain=%u,\n"
+		"	.event_group_record_offs=%u,\n"
+		"	.event_group_record_len=%u,\n"
+		"	.event_counter_offs=%u,\n"
+		"	.flags=%"PRIx32",\n"
+		"	.primary_group_ix=%u,\n"
+		"	.group_count=%u,\n"
+		"	.name=\"%*s\", /* %zu */\n"
+		"	.desc=\"%*s\", /* %zu */\n"
+		"	.detailed_desc=\"%*s\", /* %zu */\n"
+		"}\n",
+		be_to_cpu(event->length),
+		event->domain,
+		be_to_cpu(event->event_group_record_offs),
+		be_to_cpu(event->event_group_record_len),
+		be_to_cpu(event->event_counter_offs),
+		be_to_cpu(event->flags),
+		be_to_cpu(event->primary_group_ix),
+		be_to_cpu(event->group_count),
+		(int)name_len, name, name_len,
+		(int)desc_len, desc, desc_len,
+		(int)long_desc_len, long_desc, long_desc_len);
 }
 
 
@@ -199,10 +235,7 @@ int main(int argc, char **argv)
 			errx(4, "event fixed portion is not within range");
 
 		size_t ev_len = be_to_cpu(event->length);
-		size_t name_len, desc_len, long_desc_len;
-		char *name, *desc, *long_desc;
-
-		printf("event %zu of %u: len=%zu\n", i, event_entry_count, ev_len);
+		printf("/* event %zu of %u: len=%zu */\n", i, event_entry_count, ev_len);
 
 		void *ev_end = (__u8 *)event + ev_len;
 		if (ev_end > end) {
@@ -215,20 +248,14 @@ int main(int argc, char **argv)
 		if (!event_is_within(event, ev_end))
 			errx(4, "event exceeds it's own length event=%p end=%p", event, ev_end);
 
-		name = event_name(event, &name_len);
-		desc = event_desc(event, &desc_len);
-		long_desc = event_long_desc(event, &long_desc_len);
 
-		printf("event %zu of %u: len=%zu, domain=%u, event_group_record_offs=%u, event_group_record_len=%u, event_counter_offs=%u name=%*s\n",
-				i, event_entry_count,
-				ev_len, event->domain, be_to_cpu(event->event_group_record_offs), be_to_cpu(event->event_group_record_len),
-				be_to_cpu(event->event_counter_offs), (int)name_len, name);
+		print_event(event, stdout);
 
 		event = (void *)event + ev_len;
 		i ++;
 
 		/* FIXME: use the buffer size and check this but don't rely on it. */
-		if (i > event_entry_count)
+		if (i >= event_entry_count)
 			break;
 	}
 
