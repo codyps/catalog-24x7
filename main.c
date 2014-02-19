@@ -56,18 +56,18 @@ static char *event_name(struct hv_24x7_event_data *ev, size_t *len)
 
 static char *event_desc(struct hv_24x7_event_data *ev, size_t *len)
 {
-	unsigned nl = ev->event_name_len;
-	__be16 *desc_len = (__be16 *)(ev->remainder + nl);
+	unsigned nl = be_to_cpu(ev->event_name_len);
+	__be16 *desc_len = (__be16 *)(ev->remainder + nl - 2);
 	*len = be_to_cpu(*desc_len) - 2;
-	return (char *)ev->remainder + nl + 2;
+	return (char *)ev->remainder + nl;
 }
 
 static char *event_long_desc(struct hv_24x7_event_data *ev, size_t *len)
 {
-	unsigned nl = ev->event_name_len;
-	__be16 *desc_len_ = (__be16 *)(ev->remainder + nl);
+	unsigned nl = be_to_cpu(ev->event_name_len);
+	__be16 *desc_len_ = (__be16 *)(ev->remainder + nl - 2);
 	unsigned desc_len = be_to_cpu(*desc_len_);
-	__be16 *long_desc_len = (__be16 *)(ev->remainder + nl + desc_len);
+	__be16 *long_desc_len = (__be16 *)(ev->remainder + nl + desc_len - 2);
 	*len = be_to_cpu(*long_desc_len) - 2;
 	return (char *)ev->remainder + nl + desc_len + 2;
 }
@@ -88,13 +88,13 @@ static bool event_is_within(struct hv_24x7_event_data *ev, void *end)
 		return false;
 	}
 
-	unsigned dl = be_to_cpu(*((__be16*)(ev->remainder + nl)));
+	unsigned dl = be_to_cpu(*((__be16*)(ev->remainder + nl - 2)));
 	if (start + nl + dl > end) {
-		pr_debug(1, "%s: start=%p + nl=%u + dl=%u> end=%p", __func__, start, nl, dl, end);
+		pr_debug(1, "%s: (start=%p + nl=%u + dl=%u)=%p > end=%p", __func__, start, nl, dl, start + nl + dl, end);
 		return false;
 	}
 
-	unsigned ldl = be_to_cpu(*((__be16*)(ev->remainder + nl + dl)));
+	unsigned ldl = be_to_cpu(*((__be16*)(ev->remainder + nl + dl - 2)));
 	if (start + nl + dl + ldl > end) {
 		pr_debug(1, "%s: start=%p + nl=%u + dl=%u + ldl=%u > end=%p", __func__, start, nl, dl, ldl, end);
 		return false;
@@ -227,7 +227,8 @@ int main(int argc, char **argv)
 		event = (void *)event + ev_len;
 		i ++;
 
-		if (end == ev_end)
+		/* FIXME: use the buffer size and check this but don't rely on it. */
+		if (i > event_entry_count)
 			break;
 	}
 
