@@ -134,6 +134,41 @@ static void print_event(struct hv_24x7_event_data *event, FILE *o)
 }
 
 
+static void print_grs(struct hv_24x7_grs *schema, FILE *o)
+{
+	size_t length = be_to_cpu(schema->length);
+	size_t field_entry_count = be_to_cpu(schema->field_entry_count);
+
+	fprintf(o, "schema {\n"
+		"	.length = %zu,\n"
+		"	.descriptor = %u,\n"
+		"	.version_id = %u,\n"
+		"	.field_entry_count = %u,\n"
+		"	.field_entries = {\n",
+		length,
+		be_to_cpu(schema->descriptor),
+		be_to_cpu(schema->version_id),
+		field_entry_count);
+
+	struct hv_24x7_grs_field *field = (void *)schema->field_entrys;
+	size_t i = 0;
+	for (;;) {
+		size_t offset = (void *)schema - (void *)field;
+		if (offset >= length)
+			break;
+
+
+
+		i ++;
+	}
+
+	if (i < field_entry_count) {
+		
+	}
+
+	fprintf(o, "}\n");
+}
+
 #define _pr_sz(l, s) pr_debug(l, #s " = %zu", s);
 #define pr_sz(l, s) _pr_sz(l, sizeof(s))
 #define pr_u(v) pr_debug(1, #v " = %u", v);
