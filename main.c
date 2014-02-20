@@ -83,18 +83,33 @@ static bool event_is_within(struct hv_24x7_event_data *ev, void *end)
 {
 	unsigned nl = be_to_cpu(ev->event_name_len);
 	void *start = ev;
+	if (nl < 2) {
+		pr_debug(1, "%s: name length too short: %d", __func__, nl);
+		return false;
+	}
+
 	if (start + nl > end) {
 		pr_debug(1, "%s: start=%p + nl=%u > end=%p", __func__, start, nl, end);
 		return false;
 	}
 
 	unsigned dl = be_to_cpu(*((__be16*)(ev->remainder + nl - 2)));
+	if (dl < 2) {
+		pr_debug(1, "%s: desc len too short: %d", __func__, dl);
+		return false;
+	}
+
 	if (start + nl + dl > end) {
 		pr_debug(1, "%s: (start=%p + nl=%u + dl=%u)=%p > end=%p", __func__, start, nl, dl, start + nl + dl, end);
 		return false;
 	}
 
 	unsigned ldl = be_to_cpu(*((__be16*)(ev->remainder + nl + dl - 2)));
+	if (ldl < 2) {
+		pr_debug(1, "%s: long desc len too short", __func__, ldl);
+		return false;
+	}
+
 	if (start + nl + dl + ldl > end) {
 		pr_debug(1, "%s: start=%p + nl=%u + dl=%u + ldl=%u > end=%p", __func__, start, nl, dl, ldl, end);
 		return false;
@@ -137,6 +152,74 @@ static void print_event(struct hv_24x7_event_data *event, FILE *o)
 		(int)name_len, name, name_len,
 		(int)desc_len, desc, desc_len,
 		(int)long_desc_len, long_desc, long_desc_len);
+}
+
+static bool group_fixed_portion_is_within(struct hv_24x7_group_data *group, void *end)
+{
+	void *start = group;
+	return (start + sizeof(*group)) < end;
+}
+
+static bool group_is_within(struct hv_24x7_group_data *group, void *end)
+{
+
+}
+
+static char *group_name(struct hv_24x7_group_data *group, size_t *len)
+{
+
+}
+
+static char *group_desc(struct hv_24x7_group_data *group, size_t *len)
+{
+
+}
+
+static void print_group(struct hv_24x7_group_data *group, FILE *o)
+{
+	size_t name_len, desc_len;
+	char *name, *desc;
+
+	name = group_name(group, &name_len);
+	desc = group_desc(group, &desc_len);
+
+	fprintf(o, "group {\n"
+		"	.length=%u,\n"
+		"	.flags=%"PRIx32",\n"
+		"	.domain=%u,\n"
+		"	.event_group_record_offs=%u,\n"
+		"	.event_group_record_len=%u,\n"
+		"	.group_schema_index=%u,\n"
+		"	.event_count=%u,\n"
+		"	.event_indexes={%u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u},\n"
+		"	.name=\"%*s\", /* %zu */\n"
+		"	.desc=\"%*s\", /* %zu */\n"
+		"}\n",
+		be_to_cpu(group->length),
+		be_to_cpu(group->flags),
+		be_to_cpu(group->domain),
+		be_to_cpu(group->event_group_record_offs),
+		be_to_cpu(group->event_group_record_len),
+		be_to_cpu(group->group_schema_ix),
+		be_to_cpu(group->event_count),
+		be_to_cpu(group->event_ixs[0]),
+		be_to_cpu(group->event_ixs[1]),
+		be_to_cpu(group->event_ixs[2]),
+		be_to_cpu(group->event_ixs[3]),
+		be_to_cpu(group->event_ixs[4]),
+		be_to_cpu(group->event_ixs[5]),
+		be_to_cpu(group->event_ixs[6]),
+		be_to_cpu(group->event_ixs[7]),
+		be_to_cpu(group->event_ixs[8]),
+		be_to_cpu(group->event_ixs[9]),
+		be_to_cpu(group->event_ixs[10]),
+		be_to_cpu(group->event_ixs[11]),
+		be_to_cpu(group->event_ixs[12]),
+		be_to_cpu(group->event_ixs[13]),
+		be_to_cpu(group->event_ixs[14]),
+		be_to_cpu(group->event_ixs[15]),
+		(int)name_len, name, name_len,
+		(int)desc_len, desc, desc_len);
 }
 
 
@@ -260,6 +343,22 @@ int main(int argc, char **argv)
 	}
 
 	/* TODO: for each group */
+	size_t group_data_bytes = group_data_len * 4096;
+	void *group_data = malloc(group_data_len);
+	if (!group_data)
+		err(1, "alloc failure %zu", group_data_len);
+	if (fseek(f, 4096 * group_data_offs, SEEK_SET))
+		err(2, "seek failure");
+	if (fread(group_data, 1, group_data_bytes, f) != group_data_bytes)
+		err(3, "read failure");
+
+	struct hv_24x7_group_data *group = group_data;
+	end = group_data + group_data_bytes;
+	i = 0;
+	for (;;) {
+		if (!group_fi
+
+	}
 
 	/* TODO: for each formula */
 

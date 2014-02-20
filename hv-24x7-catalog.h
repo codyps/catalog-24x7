@@ -65,7 +65,7 @@ struct hv_24x7_group_data {
 	__be16 event_group_record_len;
 	__u8 group_schema_ix;
 	__u8 event_count; /* 1 to 16 */
-	__be16 event_ixs;
+	__be16 event_ixs[16];
 	__be16 group_name_len;
 	__u8 remainder[];
 	/* __u8 group_name[group_name_len]; */
