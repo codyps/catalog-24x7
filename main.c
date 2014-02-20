@@ -11,6 +11,8 @@
 #include <penny/penny.h>
 #include <penny/math.h>
 
+#include <penny/print.h>
+
 #define __packed __attribute__((__packed__))
 #include "hv-24x7-catalog.h"
 
@@ -131,10 +133,7 @@ static void print_event(struct hv_24x7_event_data *event, FILE *o)
 		"	.flags=%"PRIx32",\n"
 		"	.primary_group_ix=%u,\n"
 		"	.group_count=%u,\n"
-		"	.name=\"%*s\", /* %zu */\n"
-		"	.desc=\"%*s\", /* %zu */\n"
-		"	.detailed_desc=\"%*s\", /* %zu */\n"
-		"}\n",
+		"	.name=\"",
 		be_to_cpu(event->length),
 		event->domain,
 		be_to_cpu(event->event_group_record_offs),
@@ -142,10 +141,30 @@ static void print_event(struct hv_24x7_event_data *event, FILE *o)
 		be_to_cpu(event->event_counter_offs),
 		be_to_cpu(event->flags),
 		be_to_cpu(event->primary_group_ix),
-		be_to_cpu(event->group_count),
-		(int)name_len, name, name_len,
-		(int)desc_len, desc, desc_len,
-		(int)long_desc_len, long_desc, long_desc_len);
+		be_to_cpu(event->group_count));
+
+	print_bytes_as_cstring_(name, name_len, o);
+
+	fprintf(o, "\", /* %zu */\n"
+		"	.desc=\"",
+		name_len);
+
+	print_bytes_as_cstring_(desc, desc_len, o);
+
+	fprintf(o, "\", /* %zu */\n"
+		"	.detailed_desc=\"",
+		desc_len);
+
+	print_bytes_as_cstring_(long_desc, long_desc_len, o);
+
+	fprintf(o, "\", /* %zu */\n"
+		"}\n",
+		long_desc_len);
+
+	if (debug_is(100)) {
+		print_hex_dump_fmt(event, be_to_cpu(event->length), o);
+		fputc('\n', o);
+	}
 }
 
 static bool group_fixed_portion_is_within(struct hv_24x7_group_data *group, void *end)
@@ -213,8 +232,8 @@ static void print_group(struct hv_24x7_group_data *group, FILE *o)
 		"	.group_schema_index=%u,\n"
 		"	.event_count=%u,\n"
 		"	.event_indexes={%u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u},\n"
-		"	.name=\"%*s\", /* %zu */\n"
-		"	.desc=\"%*s\", /* %zu */\n"
+		"	.name=\"%.*s\", /* %zu */\n"
+		"	.desc=\"%.*s\", /* %zu */\n"
 		"}\n",
 		be_to_cpu(group->length),
 		be_to_cpu(group->flags),
@@ -273,7 +292,7 @@ static void print_grs(struct hv_24x7_grs *schema, FILE *o)
 	}
 
 	if (i != field_entry_count)
-		warnx("schema ended before listed # of fields were parsed (got %zu, wanted %u)", i, field_entry_count);
+		warnx("schema ended before listed # of fields were parsed (got %zu, wanted %zu)", i, field_entry_count);
 
 	fprintf(o, "}\n");
 }
@@ -373,7 +392,7 @@ int main(int argc, char **argv)
 		if (offset >= event_data_bytes)
 			break;
 
-		if (i >= event_entry_count) {
+		if (i > event_entry_count) {
 			warnx("event count ends before buffer end (offset=%zu, bytes remaining=%zu)\n",
 					offset, event_data_bytes - offset);
 			break;
@@ -416,6 +435,8 @@ int main(int argc, char **argv)
 	if (i != event_entry_count)
 		warnx("event buffer ended before listed # of events were parsed (got %zu, wanted %u)", i, event_entry_count);
 
+	return 0;
+
 	/* TODO: for each group */
 	size_t group_data_bytes = group_data_len * 4096;
 	void *group_data = malloc(group_data_len);
@@ -434,7 +455,6 @@ int main(int argc, char **argv)
 			warnx("group fixed portion is not within range");
 			break;
 		}
-
 	}
 
 	/* TODO: for each formula */
