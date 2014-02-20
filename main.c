@@ -100,7 +100,7 @@ static bool event_is_within(struct hv_24x7_event_data *ev, void *end)
 
 	unsigned ldl = be_to_cpu(*((__be16*)(ev->remainder + nl + dl - 2)));
 	if (ldl < 2) {
-		pr_debug(1, "%s: long desc len too short", __func__, ldl);
+		pr_debug(1, "%s: long desc len too short (ldl=%u)", __func__, ldl);
 		return false;
 	}
 
@@ -156,17 +156,44 @@ static bool group_fixed_portion_is_within(struct hv_24x7_group_data *group, void
 
 static bool group_is_within(struct hv_24x7_group_data *group, void *end)
 {
+	unsigned nl = be_to_cpu(group->group_name_len);
+	void *start = group;
+	if (nl < 2) {
+		pr_debug(1, "%s: name length too short: %d", __func__, nl);
+		return false;
+	}
 
+	if (start + nl > end) {
+		pr_debug(1, "%s: start=%p + nl=%u > end=%p", __func__, start, nl, end);
+		return false;
+	}
+
+	unsigned dl = be_to_cpu(*((__be16*)(group->remainder + nl - 2)));
+	if (dl < 2) {
+		pr_debug(1, "%s: desc len too short: %d", __func__, dl);
+		return false;
+	}
+
+	if (start + nl + dl > end) {
+		pr_debug(1, "%s: (start=%p + nl=%u + dl=%u)=%p > end=%p", __func__, start, nl, dl, start + nl + dl, end);
+		return false;
+	}
+
+	return true;
 }
 
 static char *group_name(struct hv_24x7_group_data *group, size_t *len)
 {
-
+	*len = be_to_cpu(group->group_name_len) - 2;
+	return (char *)group->remainder;
 }
 
 static char *group_desc(struct hv_24x7_group_data *group, size_t *len)
 {
-
+	unsigned nl = be_to_cpu(group->group_name_len);
+	__be16 *desc_len = (__be16 *)(group->remainder + nl - 2);
+	*len = be_to_cpu(*desc_len) - 2;
+	return (char *)group->remainder + nl;
 }
 
 static void print_group(struct hv_24x7_group_data *group, FILE *o)
@@ -226,7 +253,7 @@ static void print_grs(struct hv_24x7_grs *schema, FILE *o)
 		"	.length = %zu,\n"
 		"	.descriptor = %u,\n"
 		"	.version_id = %u,\n"
-		"	.field_entry_count = %u,\n"
+		"	.field_entry_count = %zu,\n"
 		"	.field_entries = {\n",
 		length,
 		be_to_cpu(schema->descriptor),
@@ -240,14 +267,13 @@ static void print_grs(struct hv_24x7_grs *schema, FILE *o)
 		if (offset >= length)
 			break;
 
-
+		
 
 		i ++;
 	}
 
-	if (i < field_entry_count) {
-		
-	}
+	if (i != field_entry_count)
+		warnx("schema ended before listed # of fields were parsed (got %zu, wanted %u)", i, field_entry_count);
 
 	fprintf(o, "}\n");
 }
@@ -343,7 +369,6 @@ int main(int argc, char **argv)
 	void *end = event_data + event_data_bytes;
 	size_t i = 0;
 	for (;;) {
-
 		size_t offset = (void *)event - (void *)event_data;
 		if (offset >= event_data_bytes)
 			break;
@@ -395,7 +420,7 @@ int main(int argc, char **argv)
 	size_t group_data_bytes = group_data_len * 4096;
 	void *group_data = malloc(group_data_len);
 	if (!group_data)
-		err(1, "alloc failure %zu", group_data_len);
+		err(1, "alloc failure %zu", group_data_bytes);
 	if (fseek(f, 4096 * group_data_offs, SEEK_SET))
 		err(2, "seek failure");
 	if (fread(group_data, 1, group_data_bytes, f) != group_data_bytes)
@@ -405,7 +430,10 @@ int main(int argc, char **argv)
 	end = group_data + group_data_bytes;
 	i = 0;
 	for (;;) {
-		if (!group_fi
+		if (!group_fixed_portion_is_within(group, end)) {
+			warnx("group fixed portion is not within range");
+			break;
+		}
 
 	}
 
