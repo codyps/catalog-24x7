@@ -8,9 +8,9 @@
 #include <ccan/pr_debug/pr_debug.h>
 #include <ccan/err/err.h>
 #include <ccan/endian/endian.h>
+
 #include <penny/penny.h>
 #include <penny/math.h>
-
 #include <penny/print.h>
 
 #define __packed __attribute__((__packed__))
@@ -89,7 +89,10 @@ static bool event_is_within(struct hv_24x7_event_data *ev, void *end)
 		return false;
 	}
 
-	unsigned dl = be_to_cpu(*((__be16*)(ev->remainder + nl - 2)));
+	__be16 *dl_ = (__be16 *)(ev->remainder + nl - 2);
+	if (!IS_ALIGNED((uintptr_t)dl_, 2))
+		warnx("desc len not aligned %p", dl_);
+	unsigned dl = be_to_cpu(*dl_);
 	if (dl < 2) {
 		pr_debug(1, "%s: desc len too short: %d", __func__, dl);
 		return false;
@@ -100,7 +103,10 @@ static bool event_is_within(struct hv_24x7_event_data *ev, void *end)
 		return false;
 	}
 
-	unsigned ldl = be_to_cpu(*((__be16*)(ev->remainder + nl + dl - 2)));
+	__be16 *ldl_ = (__be16 *)(ev->remainder + nl + dl - 2);
+	if (!IS_ALIGNED((uintptr_t)ldl_, 2))
+		warnx("long desc len not aligned %p", ldl_);
+	unsigned ldl = be_to_cpu(*ldl_);
 	if (ldl < 2) {
 		pr_debug(1, "%s: long desc len too short (ldl=%u)", __func__, ldl);
 		return false;
@@ -114,9 +120,22 @@ static bool event_is_within(struct hv_24x7_event_data *ev, void *end)
 	return true;
 }
 
+static bool event_check_validity(struct hv_24x7_event_data *ev, void *end, struct hv_24x7_event_data **next)
+{
+	/* Ensure it fits */
+
+	/* Ensure the stated length matches actual length */
+
+	/* Ensure the desc & long desc lengths are aligned to 2 bytes */
+	/* Ensure the name, desc, and long desc are '\0' terminated */
+	/* Ensure name, desc, and long desc padding is '\0' bytes */
+
+	/* Return the best guess for the next event when an error is encountered */
+	return false;
+}
+
 static void print_event(struct hv_24x7_event_data *event, FILE *o)
 {
-
 	size_t name_len, desc_len, long_desc_len;
 	char *name, *desc, *long_desc;
 
@@ -161,10 +180,8 @@ static void print_event(struct hv_24x7_event_data *event, FILE *o)
 		"}\n",
 		long_desc_len);
 
-	if (debug_is(100)) {
+	if (debug_is(100))
 		print_hex_dump_fmt(event, be_to_cpu(event->length), o);
-		fputc('\n', o);
-	}
 }
 
 static bool group_fixed_portion_is_within(struct hv_24x7_group_data *group, void *end)
