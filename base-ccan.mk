@@ -1,9 +1,10 @@
-## base-ccan.mk: c06590b, see https://github.com/jmesmon/trifles.git
+## base-ccan.mk: e76203f, see https://github.com/jmesmon/trifles.git
 CCAN_CFLAGS ?= $(ALL_CFLAGS)
 # Blah, fix LDFLAGS
 
 ifndef BASE_MK_MANUAL_CCAN
-$(obj-all) : ccan
+$(obj-all) : ccan/config.h
+$(TARGETS) : ccan/libccan.a
 ALL_CPPFLAGS += -Iccan
 ALL_LDFLAGS  += -Lccan -lccan
 endif
@@ -15,13 +16,16 @@ endif
 export CCAN_CFLAGS
 export CCAN_LDFLAGS
 
-.PHONY: ccan
-ccan: FORCE
-	$(QUIET_SUBMAKE)$(MAKE) $(MAKE_ENV) $(MFLAGS) --no-print-directory -C $@
+define sub-make
+$1 : FORCE
+	$$(QUIET_SUBMAKE)$$(MAKE) $$(MAKE_ENV) $$(MFLAGS) --no-print-directory -C $$(dir $$@) $$(notdir $$@)
+endef
 
-.PHONY: ccan.clean
-ccan.clean :
-	$(QUIET_SUBMAKE)$(MAKE) $(MAKE_ENV) $(MFLAGS) --no-print-directory -C $(@:.clean=) clean
+$(eval $(call sub-make,ccan/config.h))
+$(eval $(call sub-make,ccan/libccan.a))
+.PHONY: ccan/clean
+$(eval $(call sub-make,ccan/clean))
+
 
 .PHONY: dirclean
 dirclean : clean ccan.clean
