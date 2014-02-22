@@ -75,6 +75,10 @@ static bool event_fixed_portion_is_within(struct hv_24x7_event_data *ev, void *e
 	return (start + offsetof(struct hv_24x7_event_data, remainder)) < end;
 }
 
+/*
+ * Things we don't check:
+ *  - padding for desc, name, and long/detailed desc is required to be '\0' bytes.
+ */
 static bool event_is_within(struct hv_24x7_event_data *ev, void *end)
 {
 	unsigned nl = be_to_cpu(ev->event_name_len);
@@ -118,20 +122,6 @@ static bool event_is_within(struct hv_24x7_event_data *ev, void *end)
 	}
 
 	return true;
-}
-
-static bool event_check_validity(struct hv_24x7_event_data *ev, void *end, struct hv_24x7_event_data **next)
-{
-	/* Ensure it fits */
-
-	/* Ensure the stated length matches actual length */
-
-	/* Ensure the desc & long desc lengths are aligned to 2 bytes */
-	/* Ensure the name, desc, and long desc are '\0' terminated */
-	/* Ensure name, desc, and long desc padding is '\0' bytes */
-
-	/* Return the best guess for the next event when an error is encountered */
-	return false;
 }
 
 static void print_event(struct hv_24x7_event_data *event, FILE *o)
@@ -249,9 +239,7 @@ static void print_group(struct hv_24x7_group_data *group, FILE *o)
 		"	.group_schema_index=%u,\n"
 		"	.event_count=%u,\n"
 		"	.event_indexes={%u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u},\n"
-		"	.name=\"%.*s\", /* %zu */\n"
-		"	.desc=\"%.*s\", /* %zu */\n"
-		"}\n",
+		"	.name=\"",
 		be_to_cpu(group->length),
 		be_to_cpu(group->flags),
 		be_to_cpu(group->domain),
@@ -274,13 +262,59 @@ static void print_group(struct hv_24x7_group_data *group, FILE *o)
 		be_to_cpu(group->event_ixs[12]),
 		be_to_cpu(group->event_ixs[13]),
 		be_to_cpu(group->event_ixs[14]),
-		be_to_cpu(group->event_ixs[15]),
-		(int)name_len, name, name_len,
-		(int)desc_len, desc, desc_len);
+		be_to_cpu(group->event_ixs[15]));
+
+	print_bytes_as_cstring_(name, name_len, o);
+
+	fprintf(o , "\", /* %zu */\n"
+		"	.desc=\"", name_len);
+
+	print_bytes_as_cstring_(desc, desc_len, o);
+
+	fprintf(o, "\", /* %zu */\n"
+		"}\n", desc_len);
 }
 
+static bool schema_fixed_portion_is_within(struct hv_24x7_grs *schema, void *end)
+{
+	void *start = schema;
+	return (start + sizeof(*schema)) < end;
+}
 
-static void print_grs(struct hv_24x7_grs *schema, FILE *o)
+static bool schema_is_within(struct hv_24x7_grs *schema, void *end)
+{
+	unsigned field_entry_count = be_to_cpu(schema->field_entry_count);
+	void *start = schema;
+	if (!field_entry_count) {
+		pr_debug(1, "%s: no field entries", __func__);
+		return false;
+	}
+
+	size_t field_entry_bytes = field_entry_count * sizeof(schema->field_entrys[0]);
+
+	if (start + field_entry_bytes > end) {
+		pr_debug(1, "%s: start=%p + field_entry_bytes=%zu > end=%p", __func__, start, field_entry_bytes, end);
+		return false;
+	}
+
+	return true;
+}
+
+static void print_schema_field_entry(struct hv_24x7_grs_field *field, FILE *o)
+{
+	fprintf(o, "		{\n"
+		"			.enum = %u,\n"
+		"			.offs = %u,\n"
+		"			.length = %u,\n"
+		"			.flags = 0x%X,\n"
+		"		}\n",
+		be_to_cpu(field->field_enum),
+		be_to_cpu(field->offs),
+		be_to_cpu(field->length),
+		be_to_cpu(field->flags));
+}
+
+static void print_schema(struct hv_24x7_grs *schema, FILE *o)
 {
 	size_t length = be_to_cpu(schema->length);
 	size_t field_entry_count = be_to_cpu(schema->field_entry_count);
@@ -303,8 +337,14 @@ static void print_grs(struct hv_24x7_grs *schema, FILE *o)
 		if (offset >= length)
 			break;
 
-		
+		if (i >= field_entry_count) {
+			warnx("more space than field entries: %zu >= %zu", i, field_entry_count);
+			break;
+		}
 
+		print_schema_field_entry(field, o);
+
+		field++;
 		i ++;
 	}
 
@@ -389,9 +429,74 @@ int main(int argc, char **argv)
 	pr_u(formula_data_len);
 	pr_u(formula_entry_count);
 
-	/* TODO: for each schema offs */
+	/*
+	 * schema
+	 */
+	size_t schema_data_bytes = schema_data_len * 4096;
+	void *schema_data = malloc(schema_data_bytes);
+	if (!schema_data)
+		err(1, "alloc failure %zu", schema_data_bytes);
+	if (fseek(f, 4096 * schema_data_offs, SEEK_SET))
+		err(2, "seek failure");
+	if (fread(schema_data, 1, schema_data_bytes, f) != schema_data_bytes)
+		err(3, "read failure");
 
-	/* events */
+	struct hv_24x7_grs *schema = schema_data;
+	void *end = schema_data + schema_data_bytes;
+	size_t i;
+	for (i = 0; ; i++) {
+		if (!schema_fixed_portion_is_within(schema, end)) {
+			warnx("schema fixed portion is not within range");
+			break;
+		}
+
+		size_t offset = (void *)schema - (void *)schema_data;
+		if (offset >= schema_data_bytes)
+			break;
+
+		if (i >= schema_entry_count) {
+			/* Padding follows the last schema, this is expected */
+			pr_debug(2, "schema count ends before buffer end (offset=%zu, bytes remaining=%zu)\n",
+					offset, schema_data_bytes - offset);
+			break;
+		}
+
+		if (!schema_fixed_portion_is_within(schema, end)) {
+			warnx("schema fixed portion is not within range");
+			break;
+		}
+
+		size_t schema_len = be_to_cpu(schema->length);
+		printf("/* schema %zu of %u: len=%zu offset=%zu */\n", i, schema_entry_count, schema_len, offset);
+
+		if (!IS_ALIGNED(schema_len, 16))
+			printf("/* missaligned */\n");
+
+		void *schema_end = (__u8 *)schema + schema_len;
+		if (schema_end > end) {
+			warnx("schema ends after schema data: schema_end=%p > end=%p", schema_end, end);
+			break;
+		}
+
+		if (!schema_is_within(schema, end)) {
+			warnx("schema exceeds schema data length schema=%p end=%p", schema, end);
+			break;
+		}
+
+		if (!schema_is_within(schema, schema_end)) {
+			warnx("schema exceeds it's own length schema=%p end=%p", schema, schema_end);
+			break;
+		}
+
+		print_schema(schema, stdout);
+
+		schema = (void *)schema + schema_len;
+	}
+
+
+	/*
+	 * events
+	 */
 	size_t event_data_bytes = event_data_len * 4096;
 	void *event_data = malloc(event_data_bytes);
 	if (!event_data)
@@ -402,16 +507,16 @@ int main(int argc, char **argv)
 		err(3, "read failure");
 
 	struct hv_24x7_event_data *event = event_data;
-	void *end = event_data + event_data_bytes;
-	size_t i = 0;
-	for (;;) {
+	end = event_data + event_data_bytes;
+	for (i = 0; ; i++) {
 		size_t offset = (void *)event - (void *)event_data;
 		if (offset >= event_data_bytes)
 			break;
 
-		if (i > event_entry_count) {
-			warnx("event count ends before buffer end (offset=%zu, bytes remaining=%zu)\n",
-					offset, event_data_bytes - offset);
+		if (i >= event_entry_count) {
+			/* XXX: we have padding following the last event. Completely expected. */
+			pr_debug(2, "event count ends before buffer end (offset=%zu, end=%zu bytes remaining=%zu)\n",
+					offset, event_data_bytes, event_data_bytes - offset);
 			break;
 		}
 
@@ -446,15 +551,14 @@ int main(int argc, char **argv)
 		print_event(event, stdout);
 
 		event = (void *)event + ev_len;
-		i ++;
 	}
 
 	if (i != event_entry_count)
 		warnx("event buffer ended before listed # of events were parsed (got %zu, wanted %u)", i, event_entry_count);
 
-	return 0;
-
-	/* TODO: for each group */
+	/*
+	 * groups
+	 */
 	size_t group_data_bytes = group_data_len * 4096;
 	void *group_data = malloc(group_data_len);
 	if (!group_data)
@@ -466,12 +570,53 @@ int main(int argc, char **argv)
 
 	struct hv_24x7_group_data *group = group_data;
 	end = group_data + group_data_bytes;
-	i = 0;
-	for (;;) {
+	for (i = 0; ; i++) {
 		if (!group_fixed_portion_is_within(group, end)) {
 			warnx("group fixed portion is not within range");
 			break;
 		}
+
+		size_t offset = (void *)group - (void *)group_data;
+		if (offset >= group_data_bytes)
+			break;
+
+		if (i >= group_entry_count) {
+			/* Padding follows the last group, this is expected */
+			pr_debug(2, "group count ends before buffer end (offset=%zu, bytes remaining=%zu)\n",
+					offset, group_data_bytes - offset);
+			break;
+		}
+
+		if (!group_fixed_portion_is_within(group, end)) {
+			warnx("group fixed portion is not within range");
+			break;
+		}
+
+		size_t group_len = be_to_cpu(group->length);
+		printf("/* group %zu of %u: len=%zu offset=%zu */\n", i, group_entry_count, group_len, offset);
+
+		if (!IS_ALIGNED(group_len, 16))
+			printf("/* missaligned */\n");
+
+		void *group_end = (__u8 *)group + group_len;
+		if (group_end > end) {
+			warnx("group ends after group data: group_end=%p > end=%p", group_end, end);
+			break;
+		}
+
+		if (!group_is_within(group, end)) {
+			warnx("group exceeds group data length group=%p end=%p", group, end);
+			break;
+		}
+
+		if (!group_is_within(group, group_end)) {
+			warnx("group exceeds it's own length group=%p end=%p", group, group_end);
+			break;
+		}
+
+		print_group(group, stdout);
+
+		group = (void *)group + group_len;
 	}
 
 	/* TODO: for each formula */
