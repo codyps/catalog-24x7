@@ -128,23 +128,25 @@ static void print_event(struct hv_24x7_event_data *event, FILE *o)
 {
 	size_t name_len, desc_len, long_desc_len;
 	char *name, *desc, *long_desc;
+	char domain[1024];
 
 	name = event_name(event, &name_len);
 	desc = event_desc(event, &desc_len);
 	long_desc = event_long_desc(event, &long_desc_len);
+	domain_to_string(event->domain, domain, sizeof(domain));
 
 	fprintf(o, "event {\n"
-		"	.length=%u,\n"
-		"	.domain=%u,\n"
-		"	.event_group_record_offs=%u,\n"
-		"	.event_group_record_len=%u,\n"
-		"	.event_counter_offs=%u,\n"
-		"	.flags=%"PRIx32",\n"
-		"	.primary_group_ix=%u,\n"
-		"	.group_count=%u,\n"
-		"	.name=\"",
+		"	.length = %u,\n"
+		"	.domain = %s /* %u */,\n"
+		"	.event_group_record_offs = %u,\n"
+		"	.event_group_record_len = %u,\n"
+		"	.event_counter_offs = %u,\n"
+		"	.flags = %"PRIx32",\n"
+		"	.primary_group_ix = %u,\n"
+		"	.group_count = %u,\n"
+		"	.name = \"",
 		be_to_cpu(event->length),
-		event->domain,
+		domain, event->domain,
 		be_to_cpu(event->event_group_record_offs),
 		be_to_cpu(event->event_group_record_len),
 		be_to_cpu(event->event_counter_offs),
@@ -155,13 +157,13 @@ static void print_event(struct hv_24x7_event_data *event, FILE *o)
 	print_bytes_as_cstring_(name, name_len, o);
 
 	fprintf(o, "\", /* %zu */\n"
-		"	.desc=\"",
+		"	.desc = \"",
 		name_len);
 
 	print_bytes_as_cstring_(desc, desc_len, o);
 
 	fprintf(o, "\", /* %zu */\n"
-		"	.detailed_desc=\"",
+		"	.detailed_desc = \"",
 		desc_len);
 
 	print_bytes_as_cstring_(long_desc, long_desc_len, o);
@@ -226,23 +228,25 @@ static void print_group(struct hv_24x7_group_data *group, FILE *o)
 {
 	size_t name_len, desc_len;
 	char *name, *desc;
+	char domain[1024];
 
+	domain_to_string(group->domain, domain, sizeof(domain));
 	name = group_name(group, &name_len);
 	desc = group_desc(group, &desc_len);
 
 	fprintf(o, "group {\n"
-		"	.length=%u,\n"
-		"	.flags=%"PRIx32",\n"
-		"	.domain=%u,\n"
-		"	.event_group_record_offs=%u,\n"
-		"	.event_group_record_len=%u,\n"
-		"	.group_schema_index=%u,\n"
-		"	.event_count=%u,\n"
-		"	.event_indexes={%u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u},\n"
-		"	.name=\"",
+		"	.length = %u,\n"
+		"	.flags = %"PRIx32",\n"
+		"	.domain = %s /* %u */,\n"
+		"	.event_group_record_offs = %u,\n"
+		"	.event_group_record_len = %u,\n"
+		"	.group_schema_index = %u,\n"
+		"	.event_count = %u,\n"
+		"	.event_indexes = {%u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u},\n"
+		"	.name = \"",
 		be_to_cpu(group->length),
 		be_to_cpu(group->flags),
-		be_to_cpu(group->domain),
+		domain, group->domain,
 		be_to_cpu(group->event_group_record_offs),
 		be_to_cpu(group->event_group_record_len),
 		be_to_cpu(group->group_schema_ix),
@@ -267,7 +271,7 @@ static void print_group(struct hv_24x7_group_data *group, FILE *o)
 	print_bytes_as_cstring_(name, name_len, o);
 
 	fprintf(o , "\", /* %zu */\n"
-		"	.desc=\"", name_len);
+		"	.desc = \"", name_len);
 
 	print_bytes_as_cstring_(desc, desc_len, o);
 
@@ -307,7 +311,7 @@ static void print_schema_field_entry(struct hv_24x7_grs_field *field, FILE *o)
 		"			.offs = %u,\n"
 		"			.length = %u,\n"
 		"			.flags = 0x%X,\n"
-		"		}\n",
+		"		},\n",
 		be_to_cpu(field->field_enum),
 		be_to_cpu(field->offs),
 		be_to_cpu(field->length),
@@ -332,15 +336,17 @@ static void print_schema(struct hv_24x7_grs *schema, FILE *o)
 
 	struct hv_24x7_grs_field *field = (void *)schema->field_entrys;
 	size_t i = 0;
+	size_t offset;
 	for (;;) {
-		size_t offset = (void *)schema - (void *)field;
+		offset = (void *)field - (void *)schema;
 		if (offset >= length)
 			break;
 
 		if (i >= field_entry_count) {
-			warnx("more space than field entries: %zu >= %zu", i, field_entry_count);
+			pr_debug(1, "schema has padding of %zu bytes", length - offset);
 			break;
 		}
+		fprintf(o, "\t\t[%zu] = ", i);
 
 		print_schema_field_entry(field, o);
 
@@ -349,9 +355,10 @@ static void print_schema(struct hv_24x7_grs *schema, FILE *o)
 	}
 
 	if (i != field_entry_count)
-		warnx("schema ended before listed # of fields were parsed (got %zu, wanted %zu)", i, field_entry_count);
+		warnx("schema ended before listed # of fields were parsed (got %zu, wanted %zu, offset %zu, length %zu)", i, field_entry_count, offset, length);
 
-	fprintf(o, "}\n");
+	fprintf(o, "	}\n"
+		   "}\n");
 }
 
 #define _pr_sz(l, s) pr_debug(l, #s " = %zu", s);
@@ -496,6 +503,10 @@ int main(int argc, char **argv)
 	/*
 	 * groups
 	 */
+	struct hv_24x7_group_data **group_index = malloc(sizeof(*group_index) * group_entry_count);
+	if (!group_index)
+		err(1, "alloc failure group_index");
+
 	size_t group_data_bytes = group_data_len * 4096;
 	void *group_data = malloc(group_data_len);
 	if (!group_data)
@@ -551,6 +562,7 @@ int main(int argc, char **argv)
 			break;
 		}
 
+		group_index[i] = group;
 		print_group(group, stdout);
 
 		group = (void *)group + group_len;
