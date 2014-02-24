@@ -493,69 +493,6 @@ int main(int argc, char **argv)
 		schema = (void *)schema + schema_len;
 	}
 
-
-	/*
-	 * events
-	 */
-	size_t event_data_bytes = event_data_len * 4096;
-	void *event_data = malloc(event_data_bytes);
-	if (!event_data)
-		err(1, "alloc failure %zu", event_data_bytes);
-	if (fseek(f, 4096 * event_data_offs, SEEK_SET))
-		err(2, "seek failure");
-	if (fread(event_data, 1, event_data_bytes, f) != event_data_bytes)
-		err(3, "read failure");
-
-	struct hv_24x7_event_data *event = event_data;
-	end = event_data + event_data_bytes;
-	for (i = 0; ; i++) {
-		size_t offset = (void *)event - (void *)event_data;
-		if (offset >= event_data_bytes)
-			break;
-
-		if (i >= event_entry_count) {
-			/* XXX: we have padding following the last event. Completely expected. */
-			pr_debug(2, "event count ends before buffer end (offset=%zu, end=%zu bytes remaining=%zu)\n",
-					offset, event_data_bytes, event_data_bytes - offset);
-			break;
-		}
-
-		if (!event_fixed_portion_is_within(event, end)) {
-			warnx("event fixed portion is not within range");
-			break;
-		}
-
-		size_t ev_len = be_to_cpu(event->length);
-		printf("/* event %zu of %u: len=%zu offset=%zu */\n", i, event_entry_count, ev_len, offset);
-
-		if (!IS_ALIGNED(ev_len, 16))
-			printf("/* missaligned */\n");
-
-		void *ev_end = (__u8 *)event + ev_len;
-		if (ev_end > end) {
-			warnx("event ends after event data: ev_end=%p > end=%p", ev_end, end);
-			break;
-		}
-
-		if (!event_is_within(event, end)) {
-			warnx("event exceeds event data length event=%p end=%p", event, end);
-			break;
-		}
-
-		if (!event_is_within(event, ev_end)) {
-			warnx("event exceeds it's own length event=%p end=%p", event, ev_end);
-			break;
-		}
-
-
-		print_event(event, stdout);
-
-		event = (void *)event + ev_len;
-	}
-
-	if (i != event_entry_count)
-		warnx("event buffer ended before listed # of events were parsed (got %zu, wanted %u)", i, event_entry_count);
-
 	/*
 	 * groups
 	 */
@@ -618,6 +555,68 @@ int main(int argc, char **argv)
 
 		group = (void *)group + group_len;
 	}
+
+	/*
+	 * events
+	 */
+	size_t event_data_bytes = event_data_len * 4096;
+	void *event_data = malloc(event_data_bytes);
+	if (!event_data)
+		err(1, "alloc failure %zu", event_data_bytes);
+	if (fseek(f, 4096 * event_data_offs, SEEK_SET))
+		err(2, "seek failure");
+	if (fread(event_data, 1, event_data_bytes, f) != event_data_bytes)
+		err(3, "read failure");
+
+	struct hv_24x7_event_data *event = event_data;
+	end = event_data + event_data_bytes;
+	for (i = 0; ; i++) {
+		size_t offset = (void *)event - (void *)event_data;
+		if (offset >= event_data_bytes)
+			break;
+
+		if (i >= event_entry_count) {
+			/* XXX: we have padding following the last event. Completely expected. */
+			pr_debug(2, "event count ends before buffer end (offset=%zu, end=%zu bytes remaining=%zu)\n",
+					offset, event_data_bytes, event_data_bytes - offset);
+			break;
+		}
+
+		if (!event_fixed_portion_is_within(event, end)) {
+			warnx("event fixed portion is not within range");
+			break;
+		}
+
+		size_t ev_len = be_to_cpu(event->length);
+		printf("/* event %zu of %u: len=%zu offset=%zu */\n", i, event_entry_count, ev_len, offset);
+
+		if (!IS_ALIGNED(ev_len, 16))
+			printf("/* missaligned */\n");
+
+		void *ev_end = (__u8 *)event + ev_len;
+		if (ev_end > end) {
+			warnx("event ends after event data: ev_end=%p > end=%p", ev_end, end);
+			break;
+		}
+
+		if (!event_is_within(event, end)) {
+			warnx("event exceeds event data length event=%p end=%p", event, end);
+			break;
+		}
+
+		if (!event_is_within(event, ev_end)) {
+			warnx("event exceeds it's own length event=%p end=%p", event, ev_end);
+			break;
+		}
+
+
+		print_event(event, stdout);
+
+		event = (void *)event + ev_len;
+	}
+
+	if (i != event_entry_count)
+		warnx("event buffer ended before listed # of events were parsed (got %zu, wanted %u)", i, event_entry_count);
 
 	/* TODO: for each formula */
 
