@@ -124,15 +124,28 @@ static bool event_is_within(struct hv_24x7_event_data *ev, void *end)
 	return true;
 }
 
-static void print_event(struct hv_24x7_event_data *event, FILE *o)
+static char *group_name(struct hv_24x7_group_data *group, size_t *len)
 {
-	size_t name_len, desc_len, long_desc_len;
-	char *name, *desc, *long_desc;
+	*len = be_to_cpu(group->group_name_len) - 2;
+	return (char *)group->remainder;
+}
+
+static void print_event(struct hv_24x7_event_data *event, struct hv_24x7_group_data **group_index, size_t group_count, FILE *o)
+{
+	size_t name_len, desc_len, long_desc_len, group_name_len;
+	const char *name, *desc, *long_desc, *group_name_;
 	char domain[1024];
 
 	name = event_name(event, &name_len);
 	desc = event_desc(event, &desc_len);
 	long_desc = event_long_desc(event, &long_desc_len);
+	size_t group_ix = be_to_cpu(event->primary_group_ix);
+	if (group_ix >= group_count) {
+		group_name_ = "UNKNOWN";
+		group_name_len = strlen(group_name_);
+	} else
+		group_name_ = group_name(group_index[group_ix], &group_name_len);
+
 	domain_to_string(event->domain, domain, sizeof(domain));
 
 	fprintf(o, "event {\n"
@@ -142,15 +155,19 @@ static void print_event(struct hv_24x7_event_data *event, FILE *o)
 		"	.event_group_record_len = %u,\n"
 		"	.event_counter_offs = %u,\n"
 		"	.flags = %"PRIx32",\n"
-		"	.primary_group_ix = %u,\n"
-		"	.group_count = %u,\n"
-		"	.name = \"",
+		"	.primary_group_ix = \"",
 		be_to_cpu(event->length),
 		domain, event->domain,
 		be_to_cpu(event->event_group_record_offs),
 		be_to_cpu(event->event_group_record_len),
 		be_to_cpu(event->event_counter_offs),
-		be_to_cpu(event->flags),
+		be_to_cpu(event->flags));
+
+	print_bytes_as_cstring_(group_name_, group_name_len, o);
+
+	fprintf(o, "\" /* %u */,\n"
+		"	.group_count = %u,\n"
+		"	.name = \"",
 		be_to_cpu(event->primary_group_ix),
 		be_to_cpu(event->group_count));
 
@@ -208,12 +225,6 @@ static bool group_is_within(struct hv_24x7_group_data *group, void *end)
 	}
 
 	return true;
-}
-
-static char *group_name(struct hv_24x7_group_data *group, size_t *len)
-{
-	*len = be_to_cpu(group->group_name_len) - 2;
-	return (char *)group->remainder;
 }
 
 static char *group_desc(struct hv_24x7_group_data *group, size_t *len)
@@ -622,7 +633,7 @@ int main(int argc, char **argv)
 		}
 
 
-		print_event(event, stdout);
+		print_event(event, group_index, group_entry_count, stdout);
 
 		event = (void *)event + ev_len;
 	}
