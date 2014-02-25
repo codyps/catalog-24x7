@@ -646,6 +646,11 @@ int main(int argc, char **argv)
 		}
 
 		size_t ev_len = be_to_cpu(event->length);
+
+		if (event->event_group_record_len == 0) {
+			pr_debug(10, "invalid event, skipping\n");
+			goto next_event;
+		}
 		printf("/* event %zu of %u: len=%zu offset=%zu */\n", i, event_entry_count, ev_len, offset);
 
 		if (!IS_ALIGNED(ev_len, 16))
@@ -667,9 +672,9 @@ int main(int argc, char **argv)
 			break;
 		}
 
-
 		print_event(event, group_index, group_entry_count, stdout);
 
+next_event:
 		event = (void *)event + ev_len;
 	}
 
