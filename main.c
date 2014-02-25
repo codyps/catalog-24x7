@@ -21,24 +21,38 @@
  * - name to #
  */
 enum hv_perf_domains {
-#define DOMAIN(n, v) HV_PERF_DOMAIN_##n = v,
+#define DOMAIN(n, v, x) HV_PERF_DOMAIN_##n = v,
 #include "hv-24x7-domains.h"
 #undef DOMAIN
 };
+
+static const char *domain_to_index_string(enum hv_perf_domains domain)
+{
+	switch (domain) {
+#define DOMAIN(n, v, x)				\
+	case HV_PERF_DOMAIN_##n:		\
+		return #x;
+#include "hv-24x7-domains.h"
+#undef DOMAIN
+	default:
+		warnx("unknown domain %d", domain);
+		return "unknwon";
+	}
+}
 
 static size_t domain_to_string(enum hv_perf_domains domain, char *buf, size_t buf_len)
 {
 	size_t l;
 	switch (domain) {
-#define DOMAIN(n, v)				\
+#define DOMAIN(n, v, x)				\
 	case HV_PERF_DOMAIN_##n:		\
 		l = max(strlen(#n), buf_len);	\
 		memcpy(buf, #n, l);		\
 		break;
 #include "hv-24x7-domains.h"
 #undef DOMAIN
-		default:
-			l = snprintf(buf, buf_len, "unknown[%d]", domain);
+	default:
+		l = snprintf(buf, buf_len, "unknown[%d]", domain);
 	}
 
 	return l;
@@ -130,11 +144,21 @@ static char *group_name(struct hv_24x7_group_data *group, size_t *len)
 	return (char *)group->remainder;
 }
 
+static void print_event_fmt(struct hv_24x7_event_data *event, FILE *o)
+{
+	fprintf(o, "domain=0x%x,offset=0x%x,starting_index=%s,lpar=sibling_guest_id\n",
+			event->domain,
+			be_to_cpu(event->event_counter_offs) + be_to_cpu(event->event_group_record_offs),
+			domain_to_index_string(event->domain));
+}
+
 static void print_event(struct hv_24x7_event_data *event, struct hv_24x7_group_data **group_index, size_t group_count, FILE *o)
 {
 	size_t name_len, desc_len, long_desc_len, group_name_len;
 	const char *name, *desc, *long_desc, *group_name_;
 	char domain[1024];
+
+	print_event_fmt(event, o);
 
 	name = event_name(event, &name_len);
 	desc = event_desc(event, &desc_len);
@@ -143,8 +167,9 @@ static void print_event(struct hv_24x7_event_data *event, struct hv_24x7_group_d
 	if (group_ix >= group_count) {
 		group_name_ = "UNKNOWN";
 		group_name_len = strlen(group_name_);
-	} else
+	} else {
 		group_name_ = group_name(group_index[group_ix], &group_name_len);
+	}
 
 	domain_to_string(event->domain, domain, sizeof(domain));
 
