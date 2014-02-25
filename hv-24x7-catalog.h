@@ -3,7 +3,7 @@
 
 #include <linux/types.h>
 
-/* From document "24x7 Event and Group Catalog Formats Proposal" v0.14 */
+/* From document "24x7 Event and Group Catalog Formats Proposal" v0.15 */
 
 struct hv_24x7_catalog_page_0 {
 #define HV_24X7_CATALOG_MAGIC 0x32347837 /* "24x7" in ASCII */
