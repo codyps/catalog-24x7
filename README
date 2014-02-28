@@ -2,3 +2,13 @@
 
 # To enable collection of physical events and events on other lpars, run the following on a controlling HMC
 chsyscfg -r lpar -m <machine/fsp name> -p <partition name> -i allow_perf_collection=1
+
+
+# x86 (linux) to power lingo conversion
+
+<power term> = <x86/linux term>
+domain       = NUMA node ("node")
+pocessor     = core (?)
+partition or "lpar" (logical partition) = guest
+chip         = socket
+
