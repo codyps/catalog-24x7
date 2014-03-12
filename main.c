@@ -46,7 +46,7 @@ static const char *domain_to_index_string(enum hv_perf_domains domain)
 #undef DOMAIN
 	default:
 		warnx("unknown domain %d", domain);
-		return "unknwon";
+		return "unknown";
 	}
 }
 
@@ -670,6 +670,10 @@ int main(int argc, char **argv)
 		if (!event_is_within(event, ev_end)) {
 			warnx("event exceeds it's own length event=%p end=%p", event, ev_end);
 			break;
+		}
+
+		if (!event_is_within(event, PTR_ALIGN(event, 4096))) {
+			warnx("event crosses page boundary");
 		}
 
 		print_event(event, group_index, group_entry_count, stdout);

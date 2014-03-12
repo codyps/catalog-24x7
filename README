@@ -8,7 +8,7 @@ chsyscfg -r lpar -m <machine/fsp name> -p <partition name> -i allow_perf_collect
 
 <power term> = <x86/linux term>
 domain       = NUMA node ("node")
-pocessor     = core (?)
+processor    = core
 partition or "lpar" (logical partition) = guest
 chip         = socket
 
