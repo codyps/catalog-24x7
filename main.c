@@ -446,9 +446,9 @@ int main(int argc, char **argv)
 	struct hv_24x7_catalog_page_0 *p0 = (void *)buf;
 
 	size_t catalog_page_length = be_to_cpu(p0->length);
-	pr_debug(1, "magic  = %*s", (int)sizeof(p0->magic), (char *)&p0->magic);
+	pr_debug(1, "magic  = %.*s", (int)sizeof(p0->magic), (char *)&p0->magic);
 	pr_debug(1, "length = %zu pages", catalog_page_length);
-	pr_debug(1, "build_time_stamp = %*s", (int)sizeof(p0->build_time_stamp), p0->build_time_stamp);
+	pr_debug(1, "build_time_stamp = %.*s", (int)sizeof(p0->build_time_stamp), p0->build_time_stamp);
 
 	pr_debug(1, "version = %"PRIu64, be_to_cpu(p0->version));
 
