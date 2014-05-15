@@ -1,4 +1,41 @@
 
+# Usage of 'parse'
+
+./parse test-data/v3
+# OR, on a machine with some kernel support
+./parse /sys/bus/event_source/devices/hv_24x7/interface/catalog
+
+# Will output something like
+#
+/* event 252 of 1246: len=96 offset=22064 */
+HPM_TLBIE:
+domain=0x2,offset=0x358,starting_index=core,lpar=0x0
+domain=0x3,offset=0x358,starting_index=vcpu,lpar=sibling_guest_id
+domain=0x4,offset=0x358,starting_index=vcpu,lpar=sibling_guest_id
+domain=0x5,offset=0x358,starting_index=vcpu,lpar=sibling_guest_id
+domain=0x6,offset=0x358,starting_index=vcpu,lpar=sibling_guest_id
+
+# Take a look at hv-24x7-domains.h to see what the domains mean.
+# You can then grab data with something like:
+perf stat -C 0 -r 0 -e hv_24x7/domain=0x2,offset=0x358,starting_index=0x1,lpar=0x0 sleep 1
+
+# A breakdown of the above command:
+#  -C 0 : run on cpu 0. This is to satisfy some perf internals. It has no effect on the data collected via 24x7.
+#  -r 0 : repeat forever
+#  -e hv_24x7/domain=0x2,offset=0x358,starting_index=0x1,lpar=0x0 sleep
+#       "domain=0x2" : collect from a physical core
+#       "starting_index=0x1" : core = 0x1, a physical core id (no real way to get these right now)
+#       This event was copied from the above sample output and then tweaked
+
+# Another:
+perf stat -C 0 -r 0 -e hv_24x7/domain=0x3,offset=0x358,starting_index=0x0,lpar=0xffffffff sleep 1
+
+# A breakdown of the above event changes:
+#  -e hv_24x7/domain=0x3,offset=0x358,starting_index=0x0,lpar=0xffffffff
+#       "domain=0x3" : collect from a virtual processor home core
+#       "starting_index=0x0" : use the home core of vcpu id 0
+#       "lpar=0xffffffff" : use the _current_ lpar. You can also use an lpar id here.
+
 
 # To enable collection of physical events and events on other lpars, run the following on a controlling HMC
 chsyscfg -r lpar -m <machine/fsp name> -p <partition name> -i allow_perf_collection=1
