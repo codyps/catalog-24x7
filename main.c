@@ -16,6 +16,7 @@
 #include <stddef.h>
 
 #include <ccan/pr_debug/pr_debug.h>
+#include <ccan/array_size/array_size.h>
 #include <ccan/err/err.h>
 #include <ccan/endian/endian.h>
 
@@ -35,6 +36,12 @@ enum hv_perf_domains {
 #include "hv-24x7-domains.h"
 #undef DOMAIN
 };
+
+static bool is_physical_domain(enum hv_perf_domains domain)
+{
+	return domain == HV_PERF_DOMAIN_PHYSICAL_CHIP ||
+		domain == HV_PERF_DOMAIN_PHYSICAL_CORE;
+}
 
 static const char *domain_to_index_string(enum hv_perf_domains domain)
 {
@@ -154,12 +161,47 @@ static char *group_name(struct hv_24x7_group_data *group, size_t *len)
 	return (char *)group->remainder;
 }
 
-static void print_event_fmt(struct hv_24x7_event_data *event, FILE *o)
+static void print_event_fmt(struct hv_24x7_event_data *event, unsigned domain, FILE *o)
 {
-	fprintf(o, "domain=0x%x,offset=0x%x,starting_index=%s,lpar=sibling_guest_id\n",
-			event->domain,
-			be_to_cpu(event->event_counter_offs) + be_to_cpu(event->event_group_record_offs),
-			domain_to_index_string(event->domain));
+	const char *lpar;
+	if (is_physical_domain(domain))
+		lpar = "0x0";
+	else
+		lpar = "sibling_guest_id";
+
+	fprintf(o, "domain=0x%x,offset=0x%x,starting_index=%s,lpar=%s\n",
+			domain,
+			be_to_cpu(event->event_counter_offs) +
+				be_to_cpu(event->event_group_record_offs),
+			domain_to_index_string(domain),
+			lpar);
+}
+
+static unsigned core_domains[] = {
+	HV_PERF_DOMAIN_PHYSICAL_CORE,
+	HV_PERF_DOMAIN_VIRTUAL_PROCESSOR_HOME_CORE,
+	HV_PERF_DOMAIN_VIRTUAL_PROCESSOR_HOME_CHIP,
+	HV_PERF_DOMAIN_VIRTUAL_PROCESSOR_HOME_NODE,
+	HV_PERF_DOMAIN_VIRTUAL_PROCESSOR_REMOTE_NODE,
+};
+
+static void print_event_for_all_domains(struct hv_24x7_event_data *event, FILE *o)
+{
+	unsigned i;
+	size_t nl;
+	char *name = event_name(event, &nl);
+	fprintf(o, "%.*s:\n", (int)nl, name);
+	switch (event->domain) {
+	case HV_PERF_DOMAIN_PHYSICAL_CHIP:
+		print_event_fmt(event, event->domain, o);
+		break;
+	case HV_PERF_DOMAIN_PHYSICAL_CORE:
+		for (i = 0; i < ARRAY_SIZE(core_domains); i++)
+			print_event_fmt(event, core_domains[i], o);
+		break;
+	default:
+		pr_debug(1, "Whoops");
+	}
 }
 
 static void print_event(struct hv_24x7_event_data *event, struct hv_24x7_group_data **group_index, size_t group_count, FILE *o)
@@ -168,7 +210,10 @@ static void print_event(struct hv_24x7_event_data *event, struct hv_24x7_group_d
 	const char *name, *desc, *long_desc, *group_name_;
 	char domain[1024];
 
-	print_event_fmt(event, o);
+	print_event_for_all_domains(event, o);
+
+	if (!debug_is(5))
+		return;
 
 	name = event_name(event, &name_len);
 	desc = event_desc(event, &desc_len);
@@ -520,7 +565,8 @@ int main(int argc, char **argv)
 		}
 
 		size_t schema_len = be_to_cpu(schema->length);
-		printf("/* schema %zu of %u: len=%zu offset=%zu */\n", i, schema_entry_count, schema_len, offset);
+		if (debug_is(1))
+			printf("/* schema %zu of %u: len=%zu offset=%zu */\n", i, schema_entry_count, schema_len, offset);
 
 		if (!IS_ALIGNED(schema_len, 16))
 			printf("/* missaligned */\n");
@@ -541,7 +587,8 @@ int main(int argc, char **argv)
 			break;
 		}
 
-		print_schema(schema, stdout);
+		if (debug_is(1))
+			print_schema(schema, stdout);
 
 		schema = (void *)schema + schema_len;
 	}
@@ -587,7 +634,7 @@ int main(int argc, char **argv)
 		}
 
 		size_t group_len = be_to_cpu(group->length);
-		printf("/* group %zu of %u: len=%zu offset=%zu */\n", i, group_entry_count, group_len, offset);
+		pr_debug(1, "/* group %zu of %u: len=%zu offset=%zu */\n", i, group_entry_count, group_len, offset);
 
 		if (!IS_ALIGNED(group_len, 16))
 			printf("/* missaligned */\n");
@@ -609,7 +656,8 @@ int main(int argc, char **argv)
 		}
 
 		group_index[i] = group;
-		print_group(group, stdout);
+		if (debug_is(1))
+			print_group(group, stdout);
 
 		group = (void *)group + group_len;
 	}
@@ -619,12 +667,13 @@ int main(int argc, char **argv)
 	 */
 	size_t event_data_bytes = event_data_len * 4096;
 	void *event_data = malloc(event_data_bytes);
+	ssize_t rs;
 	if (!event_data)
 		err(1, "alloc failure %zu", event_data_bytes);
 	if (fseek(f, 4096 * event_data_offs, SEEK_SET))
 		err(2, "seek failure");
-	if (fread(event_data, 1, event_data_bytes, f) != event_data_bytes)
-		err(3, "read failure");
+	if ((rs = fread(event_data, 1, event_data_bytes, f)) != (ssize_t)event_data_bytes)
+		err(3, "read failure %zd", rs);
 
 	struct hv_24x7_event_data *event = event_data;
 	end = event_data + event_data_bytes;
